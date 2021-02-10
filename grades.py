@@ -1,4 +1,3 @@
-from __future__ import print_function
 import pickle
 import os.path
 from googleapiclient.discovery import build
@@ -6,32 +5,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-SAMPLE_SPREADSHEET_ID = '1xBoRULQD8vNtOTG7K78FRM9KyMj7IldxxUQWN9u7GzM'
-SAMPLE_RANGE_NAME = 'engenharia_de_software!A4:H'
+SPREADSHEET_ID = '1xBoRULQD8vNtOTG7K78FRM9KyMj7IldxxUQWN9u7GzM'
+RANGE_NAME = 'engenharia_de_software!A4:H'
 
-
-def set_data_google(results):
-
-    sheet = google_connection()
-   
-    range = 'engenharia_de_software!G4:H'  
- 
-    values = results
-    body = {
-        'values': values
-    }
-    result = sheet.values().update(spreadsheetId=SAMPLE_SPREADSHEET_ID, valueInputOption='RAW', range=range, body=body).execute()
-    print('Finished! {0} cells updated.'.format(result.get('updatedCells')))
-
-def get_google_data(): 
-    
-    sheet = google_connection()
-    result = sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                range=SAMPLE_RANGE_NAME).execute()
-    values = result.get('values', [])
-    return values
 
 def google_connection():
+    """
+    Checks for a valid token and creates one when none is found.
+    """
     creds = None
 
     if os.path.exists('token.pickle'):
@@ -48,44 +29,73 @@ def google_connection():
             pickle.dump(creds, token)
 
     service = build('sheets', 'v4', credentials=creds)
+    return service.spreadsheets()
 
-    sheet = service.spreadsheets()
-    return sheet
+
+def set_google_data(results):
+    """
+    Receives classified grades and updated the google sheet accordingly.
+    """
+            
+    print('Step 3 - Updating Google Sheets')
+    
+    sheet = google_connection()
+   
+    cells_range = 'engenharia_de_software!G4:H'  
+    body = {
+        'values': results
+    }
+    result = sheet.values().update(spreadsheetId=SPREADSHEET_ID, valueInputOption='RAW', range=cells_range, body=body).execute()
+    print('Finished! {0} cells updated.'.format(result.get('updatedCells')))
+
+
+def get_google_data():
+    """
+    Scrapes google sheets for student grades of a given range.
+    """
+    print('Step 1 - Downloading data from Google Sheets...')
+    sheet = google_connection()
+    result = sheet.values().get(spreadsheetId=SPREADSHEET_ID,
+                                range=RANGE_NAME).execute()
+    
+    return result.get('values', [])
+
+
+def classify_grades(downloaded_data):
+    """
+    Receives raw grades and return a array with student grade classification and the necessary final exam grade when relevant.
+    """
+    print('Step 2 - Classifying students grades')
+    grades = []
+    for row in downloaded_data:
+        abscences = int(row[2])
+        mean = (int(row[3]) +int(row[4])+int(row[5]))/30
+
+        if (abscences > 15 ):
+            grades.append(['Reprovado por falta', 0])
+        elif ( mean < 5 ):
+
+            grades.append(['Reprovado por nota', 0])
+        elif ( 5 <= mean < 7 ):
+            naf = 10 - mean
+            if (naf <= 5 ):
+                naf = round (naf + 0.5)
+                grades.append(['Exame final', naf])
+        else:
+            grades.append(['Aprovado', 0])
+    return grades    
+
+
 def main():
     
-    print('Step 1 - Downloading data from Google Sheets...')
     downloaded_data = get_google_data()
-    
    
     if not downloaded_data:
         print('No data found.')
     else:
-        print('Step 2 - Classifying students grades')
-
-        grades = []
-        for row in downloaded_data:
-            
-            abscences = int (row[2])
-            mean = (int(row[3]) +int(row[4])+int(row[5]))/30
-
-            if (abscences > 15 ):
-                grades.append(['Reprovado por falta', 0])
-                
-            elif ( mean < 5 ):
-                grades.append(['Reprovado por nota', 0])
-            elif ( 5 <= mean < 7 ):
-                naf = 10 - mean
-                if (naf < 5 ):
-                    naf = round (naf + 0.5)
-                grades.append(['Exame final', naf])
-
-            else:
-                grades.append(['Aprovado', 0])
-           
-        print('Step 3 - Updating Google Sheets')
-
-        set_data_google(grades)
-
+        grades = classify_grades(downloaded_data)
+        set_google_data(grades)
+        
 
 if __name__ == '__main__':
     print('Starting execution')
